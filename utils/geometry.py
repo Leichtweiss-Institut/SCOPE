@@ -20,8 +20,8 @@ from qgis.core import (
 from qgis.PyQt.QtCore import QVariant
 from qgis.PyQt.QtGui import QColor
 
-from SCOPE.utils.constants import get_working_crs, AXIS_LAYER_NAME, ORIGIN_POINT_LAYER_NAME
-from SCOPE.utils.layer_utils import add_layer_to_group
+from .constants import get_working_crs, AXIS_LAYER_NAME, ORIGIN_POINT_LAYER_NAME
+from .layer_utils import add_layer_to_group
 
 
 def reproject_geom(geom, src_crs, dst_crs):

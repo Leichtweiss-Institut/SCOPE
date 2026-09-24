@@ -2,17 +2,11 @@
 Main module for SCOPE.
 """
 import traceback
-import os
-import sys
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
 
 from qgis.utils import iface  # type: ignore
 from qgis.core import Qgis
 
-from SCOPE.gui.main_dialog import ScopeDialog # type: ignore
+from .gui.main_dialog import ScopeDialog
 
 
 scope_dialog = None
@@ -27,7 +21,7 @@ def run():
     """Main entry point for SCOPE."""
     global scope_dialog
     try:
-        from SCOPE.gui.welcome_dialog import show_welcome_if_needed
+        from .gui.welcome_dialog import show_welcome_if_needed
         if not show_welcome_if_needed():
             return
 

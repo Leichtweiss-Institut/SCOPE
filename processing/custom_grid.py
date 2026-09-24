@@ -24,7 +24,7 @@ from qgis.core import (
     QgsRectangle,
 )
 
-from SCOPE.utils.constants import get_working_crs
+from ..utils.constants import get_working_crs
 
 try:
     from qgis.PyQt import sip

@@ -1,24 +1,30 @@
 """
 Launcher for SCOPE.
 
-This script can be executed from the QGIS Python console to launch the tool.
-It handles path configuration and provides error reporting.
+Run from the QGIS Python console editor, or from the console with:
+
+    path = '/path/to/SCOPE/launcher.py'
+    exec(open(path).read(), {'__file__': path})
+
+The package is imported under the name of its folder, so a checkout named
+"SCOPE-main" works as well. All SCOPE modules are reloaded on every run, so
+code changes take effect without restarting QGIS.
 """
 
+import importlib
 import os
 import sys
 import traceback
-import importlib
-from qgis.utils import iface
-from qgis.core import Qgis
 
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
+from qgis.core import Qgis
+from qgis.utils import iface
 
 tool_dir = os.path.dirname(os.path.abspath(__file__))
-if tool_dir not in sys.path:
-    sys.path.append(tool_dir)
+package_name = os.path.basename(tool_dir)
+parent_dir = os.path.dirname(tool_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
 
 def show_message(text, level=Qgis.MessageLevel.Info, duration=5):
     """Display a message in the QGIS message bar."""
@@ -27,35 +33,21 @@ def show_message(text, level=Qgis.MessageLevel.Info, duration=5):
     else:
         print(text)
 
-try:
-    # Clear any cached imports first
-    modules_to_reload = [
-        'SCOPE.gui.welcome_dialog',
-        'SCOPE.gui.main_dialog',
-        'SCOPE.main'
-    ]
 
-    for module_name in modules_to_reload:
-        if module_name in sys.modules:
-            importlib.reload(sys.modules[module_name])
-            show_message(f"Reloaded module: {module_name}", Qgis.MessageLevel.Info, 2)
+try:
+    # Drop cached modules so edited files are imported fresh.
+    for name in list(sys.modules):
+        if name == package_name or name.startswith(package_name + "."):
+            del sys.modules[name]
 
     show_message("Loading SCOPE...", Qgis.MessageLevel.Info, 3)
-    from SCOPE.main import run  # type: ignore
-
-    run()
+    importlib.import_module(f"{package_name}.main").run()
 
 except ImportError as e:
-    error_msg = f"Import error: {str(e)}"
-    show_message(error_msg, Qgis.MessageLevel.Critical, 10)
+    show_message(f"Import error: {e}", Qgis.MessageLevel.Critical, 10)
     traceback.print_exc()
-
-    print("\nPython path:")
-    for p in sys.path:
-        print(f"  {p}")
-    print(f"\nScript directory: {os.path.abspath(__file__)}")
+    print(f"\nPackage '{package_name}' expected in: {parent_dir}")
 
 except Exception as e:
-    error_msg = f"Error launching SCOPE: {str(e)}"
-    show_message(error_msg, Qgis.MessageLevel.Critical, 10)
+    show_message(f"Error launching SCOPE: {e}", Qgis.MessageLevel.Critical, 10)
     traceback.print_exc()

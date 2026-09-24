@@ -5,8 +5,8 @@ from pathlib import Path
 
 import numpy as np
 
-from SCOPE.utils.geometry import rot_point
-from SCOPE.utils.constants import get_working_crs, NODATA_VAL
+from ...utils.geometry import rot_point
+from ...utils.constants import get_working_crs, NODATA_VAL
 from .preview import plot_custom_grid_preview, plot_grid_preview
 from .threshold import (
     create_left_to_right_adaptive_grid,
@@ -271,7 +271,7 @@ def create_grids_gui(ll, centre, w, h, ang_deg, dx, dy, xyz_file: Path, out_dir:
     log_func(f"{get_output_filename('x.grd')}, {get_output_filename('y.grd')}, {get_output_filename('z.grd')} written.")
 
     if custom_grid_definitions:
-        from SCOPE.processing.custom_grid import create_custom_grids
+        from ..custom_grid import create_custom_grids
         create_custom_grids(XA, YA, origin_x, origin_y, out_dir, log_func,
                             custom_grid_definitions, coord_system, output_prefix=output_prefix)
         if show_custom_grid_preview:

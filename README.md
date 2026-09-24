@@ -36,12 +36,25 @@ You draw and rotate a model domain on the QGIS map, and SCOPE writes:
 
 ## Installation
 
-**From a ZIP file.** Run `./build_plugin.sh` in the repository to create
-`SCOPE.zip`, then in QGIS choose *Plugins → Manage and Install Plugins →
-Install from ZIP*.
+**From a ZIP file.** Build `SCOPE.zip` from the QGIS Python console
+(*Plugins → Python Console*), using the full path to `build_plugin.py`:
 
-**From source.** Copy or link the repository folder, named `SCOPE`, into your
-QGIS plugin folder and enable SCOPE in *Plugins → Manage and Install Plugins*:
+```python
+# Linux / macOS
+import runpy; runpy.run_path('/path/to/SCOPE/build_plugin.py', run_name='__main__')
+
+# Windows
+import runpy; runpy.run_path(r'C:\path\to\SCOPE\build_plugin.py', run_name='__main__')
+```
+
+Alternatively, run `python build_plugin.py` in a terminal (on Windows, the
+*OSGeo4W Shell* installed with QGIS). The ZIP is created next to
+`build_plugin.py`. Then in QGIS choose *Plugins → Manage and Install Plugins →
+Install from ZIP* and select `SCOPE.zip`.
+
+**From source.** Copy or link the repository folder into your QGIS plugin
+folder and enable SCOPE in *Plugins → Manage and Install Plugins*. The folder
+name does not matter, so a GitHub download named `SCOPE-main` works as is:
 
 - Linux: `~/.local/share/QGIS/QGIS3/profiles/default/python/plugins/`
 - macOS: `~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/`
@@ -49,13 +62,18 @@ QGIS plugin folder and enable SCOPE in *Plugins → Manage and Install Plugins*:
 
 SCOPE then appears in the toolbar and under *Plugins → SCOPE*.
 
-**For development.** Run `launcher.py` from the QGIS Python console. It adds
-the repository to the Python path and reloads the modules, so code changes take
-effect without restarting QGIS:
+**For development.** Open `launcher.py` in the QGIS Python console's editor and
+run it, or run it from the console:
 
 ```python
-exec(open('/path/to/SCOPE/launcher.py').read())
+path = '/path/to/SCOPE/launcher.py'
+exec(open(path).read(), {'__file__': path})
 ```
+
+The launcher imports the repository under its folder name and reloads all SCOPE
+modules on every run, so code changes take effect without restarting QGIS. On
+Windows, use forward slashes or a raw string for the path, for example
+`r'C:\Users\me\SCOPE-main\launcher.py'`.
 
 ## Quick start
 
@@ -96,7 +114,7 @@ SCOPE/
 ├── __init__.py, plugin.py   QGIS plugin entry point and toolbar/menu integration
 ├── main.py, launcher.py     Python console entry point and development launcher
 ├── metadata.txt, icon.png   Plugin metadata and icon read by QGIS
-├── build_plugin.sh          Builds the installable SCOPE.zip
+├── build_plugin.py          Builds the installable SCOPE.zip
 ├── gui/                     Dialogs (main window, welcome screen, layer selection,
 │                            custom grid definition, threshold mask)
 ├── core/map_tools.py        Drawing and moving the model domain on the map

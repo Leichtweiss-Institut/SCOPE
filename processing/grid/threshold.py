@@ -5,7 +5,7 @@ import math
 import numpy as np
 from qgis.core import QgsProject, QgsCoordinateTransform, QgsGeometry, QgsPointXY, QgsFeature
 
-from SCOPE.utils.constants import get_working_crs
+from ...utils.constants import get_working_crs
 
 
 def create_threshold_mask_grid(XA, YA, origin_x, origin_y, out_dir, log_func, threshold_layers,

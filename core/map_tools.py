@@ -6,7 +6,7 @@ from qgis.gui import QgsMapTool, QgsRubberBand
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QColor
 
-from SCOPE.utils.constants import get_working_crs
+from ..utils.constants import get_working_crs
 
 
 def _create_model_area_layers(canvas, geometry, center_point):
@@ -20,7 +20,7 @@ def _create_model_area_layers(canvas, geometry, center_point):
             QgsMarkerSymbol,
             QgsGeometry,
         )
-        from SCOPE.utils.layer_utils import add_layer_to_group
+        from ..utils.layer_utils import add_layer_to_group
 
         existing_layers = QgsProject.instance().mapLayersByName("Model area")
         for layer in existing_layers:
@@ -225,7 +225,7 @@ class RectTool(QgsMapTool):
     def show_xbeach_axes(self, origin_point, width, height, angle):
         """Show XBeach coordinate axes from the origin point."""
         try:
-            from SCOPE.utils.geometry import update_axes_visualization
+            from ..utils.geometry import update_axes_visualization
             update_axes_visualization(origin_point, width, height, angle, is_xbeach_origin=True)
         except Exception as e:
             QgsMessageLog.logMessage(f"Error showing XBeach axes: {e}", "SCOPE", Qgis.Warning)
@@ -233,7 +233,7 @@ class RectTool(QgsMapTool):
     def clear_xbeach_axes(self):
         """Clear XBeach axes visualization."""
         try:
-            from SCOPE.utils.geometry import clear_xbeach_layers
+            from ..utils.geometry import clear_xbeach_layers
             clear_xbeach_layers()
         except Exception as e:
             QgsMessageLog.logMessage(f"Error clearing XBeach axes: {e}", "SCOPE", Qgis.Warning)

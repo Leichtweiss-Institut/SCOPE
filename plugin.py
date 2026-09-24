@@ -46,8 +46,8 @@ class ScopePlugin:
 
     def run(self):
         """Show the main dialog, reusing the existing instance if open."""
-        from SCOPE.gui.main_dialog import ScopeDialog
-        from SCOPE.gui.welcome_dialog import show_welcome_if_needed
+        from .gui.main_dialog import ScopeDialog
+        from .gui.welcome_dialog import show_welcome_if_needed
 
         if self.dialog is None:
             if not show_welcome_if_needed(self.iface.mainWindow()):

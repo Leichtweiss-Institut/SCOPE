@@ -11,7 +11,7 @@ from qgis.PyQt.QtWidgets import (
     QCheckBox, QComboBox, QLineEdit, QWidget, QScrollArea, QMessageBox
 )
 
-from SCOPE.processing.custom_grid import CustomGridDefinition
+from ..processing.custom_grid import CustomGridDefinition
 
 
 # Presets pre-fill filename, default value and decimals; all fields stay editable.

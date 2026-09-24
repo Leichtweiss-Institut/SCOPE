@@ -15,11 +15,11 @@ from qgis.utils import iface
 from qgis.core import Qgis, QgsApplication, QgsProject
 from qgis.gui import QgsProjectionSelectionWidget
 
-from SCOPE.utils.constants import set_working_crs, get_working_crs
+from ..utils.constants import set_working_crs, get_working_crs
 
-from SCOPE.gui.raster_selection import select_raster_layers
-from SCOPE.core.map_tools import RectTool, MoveModelAreaTool
-from SCOPE.processing.raster import clip_translate_grid_gui
+from .raster_selection import select_raster_layers
+from ..core.map_tools import RectTool, MoveModelAreaTool
+from ..processing.raster import clip_translate_grid_gui
 
 
 class AdaptiveGridDialog(QDialog):
@@ -529,7 +529,7 @@ class ScopeDialog(QDialog):
 
     def add_custom_grid(self):
         """Define a new custom grid file."""
-        from SCOPE.gui.custom_grid_definition import CustomGridDefinitionDialog
+        from .custom_grid_definition import CustomGridDefinitionDialog
 
         vector_layers = self._get_project_vector_layers()
         if not vector_layers:
@@ -546,7 +546,7 @@ class ScopeDialog(QDialog):
 
     def edit_custom_grid(self):
         """Edit the selected custom grid definition."""
-        from SCOPE.gui.custom_grid_definition import CustomGridDefinitionDialog
+        from .custom_grid_definition import CustomGridDefinitionDialog
 
         index = self.custom_grid_list.currentRow()
         if index < 0 or index >= len(self.custom_grid_definitions):
@@ -647,7 +647,7 @@ class ScopeDialog(QDialog):
 
     def select_threshold_layers(self):
         """Select threshold mask layers and assign complex values."""
-        from SCOPE.gui.threshold_mask_selection import ThresholdMaskSelectionDialog
+        from .threshold_mask_selection import ThresholdMaskSelectionDialog
 
         vector_layers = self._get_project_vector_layers()
 
@@ -716,7 +716,7 @@ class ScopeDialog(QDialog):
 
     def show_welcome_screen(self):
         """Re-show the welcome screen and re-enable it for future launches."""
-        from SCOPE.gui.welcome_dialog import WelcomeDialog
+        from .welcome_dialog import WelcomeDialog
         WelcomeDialog.reset_preference()
         WelcomeDialog(self).exec_()
 
@@ -779,7 +779,7 @@ class ScopeDialog(QDialog):
 
         # Keep XBeach axes/origin visualization synchronized with moved box.
         if self.anchor_combo.currentText() == "XBeach coordinate origin":
-            from SCOPE.utils.geometry import update_axes_visualization
+            from ..utils.geometry import update_axes_visualization
             update_axes_visualization(
                 ll_point,
                 self.width_spin.value(),
@@ -826,7 +826,7 @@ class ScopeDialog(QDialog):
             for name in ("Model area", "Model center"):
                 for layer in list(project.mapLayersByName(name)):
                     project.removeMapLayer(layer.id())
-            from SCOPE.utils.geometry import clear_xbeach_layers
+            from ..utils.geometry import clear_xbeach_layers
             clear_xbeach_layers()
         except Exception as e:
             self.log(f"Warning: Could not remove input layers: {e}")
@@ -897,7 +897,7 @@ class ScopeDialog(QDialog):
             )
             from qgis.PyQt.QtCore import QVariant
             from qgis.PyQt.QtGui import QColor
-            from SCOPE.utils.layer_utils import add_layer_to_group
+            from ..utils.layer_utils import add_layer_to_group
 
             project = QgsProject.instance()
             existing_layers = project.mapLayersByName("Split areas")
@@ -1249,7 +1249,7 @@ class ScopeDialog(QDialog):
     def on_anchor_point_changed(self, text):
         """Handle anchor point selection changes."""
         if text != "XBeach coordinate origin":
-            from SCOPE.utils.geometry import clear_xbeach_layers
+            from ..utils.geometry import clear_xbeach_layers
             clear_xbeach_layers()
             self.log("Switched to Center mode. XBeach visualization layers cleared.")
         else:
@@ -1258,7 +1258,7 @@ class ScopeDialog(QDialog):
     def initialize_layer_visibility(self):
         """Initialize XBeach layer visibility based on current anchor mode."""
         if self.anchor_combo.currentText() != "XBeach coordinate origin":
-            from SCOPE.utils.geometry import clear_xbeach_layers
+            from ..utils.geometry import clear_xbeach_layers
             clear_xbeach_layers()
 
 
