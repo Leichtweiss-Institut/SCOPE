@@ -1,0 +1,20 @@
+[general]
+name=SCOPE
+qgisMinimumVersion=3.40
+description=Generate orthogonal grid files for XBeach and AeoLiS coastal models from raster bathymetry and vector layers.
+about=Interactive QGIS tool for generating model-ready, orthogonal grid files for coastal and geomorphological workflows. Draw and rotate a model extent on the map, then export x.grd, y.grd and z.grd from raster bathymetry, custom value grids (e.g. vegetation veg.grd, hard layers ne_layer.grd, bed friction bedfriction.grd) from polygon layers, and complex-valued threshold mask grids for AeoLiS-style masking. Supports adaptive cross-shore resolution, local or world coordinate output, model-area splitting and batch processing of multiple rasters.
+version=1.0.0
+author=Felix Ritter
+email=felix.ritter@tu-braunschweig.de
+
+tags=grid,coastal,xbeach,aeolis,bathymetry,geomorphology,raster,vegetation,dune
+
+category=Plugins
+icon=icon.png
+experimental=False
+deprecated=False
+hasProcessingProvider=False
+
+homepage=https://github.com/Leichtweiss-Institut/SCOPE
+repository=https://github.com/Leichtweiss-Institut/SCOPE
+tracker=https://github.com/Leichtweiss-Institut/SCOPE/issues
