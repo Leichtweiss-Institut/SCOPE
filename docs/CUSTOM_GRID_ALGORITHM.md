@@ -102,3 +102,5 @@ core. It also depends on the number and complexity of the polygons.
   polygon that contains the node has distance zero and is always among them,
   unless more than ten polygons overlap at that node.
 - The same code path is used for every grid size and every definition.
+- The AeoLiS threshold mask (`threshold_mask.grd`) uses this routine as well,
+  with complex values written as `(real+imagj)` at full precision.

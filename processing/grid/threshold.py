@@ -3,9 +3,8 @@ Adaptive cross-shore node layouts and the AeoLiS threshold mask.
 """
 import math
 import numpy as np
-from qgis.core import QgsProject, QgsCoordinateTransform, QgsGeometry, QgsPointXY, QgsFeature
 
-from ...utils.constants import get_working_crs
+from ..custom_grid import CustomGridDefinition, create_custom_grids
 
 
 def create_threshold_mask_grid(XA, YA, origin_x, origin_y, out_dir, log_func, threshold_layers,
@@ -14,9 +13,9 @@ def create_threshold_mask_grid(XA, YA, origin_x, origin_y, out_dir, log_func, th
     """
     Create threshold_mask.grd for AeoLiS from polygon layers with complex values.
 
-    Each cell takes the value of the layer covering the largest share of its
-    area, and that value is written to the cell's four corner nodes so the
-    mask has the same shape as x.grd, y.grd and z.grd.
+    Uses the same node-based point-in-polygon routine as the custom grid files:
+    each node takes the value of the last layer containing it, and all other
+    nodes keep the default value.
 
     Args:
         XA, YA: Node coordinate arrays of shape (ny, nx)
@@ -27,109 +26,21 @@ def create_threshold_mask_grid(XA, YA, origin_x, origin_y, out_dir, log_func, th
         coord_system: "local" or "world"
         threshold_default_value: Value for nodes not covered by any layer
         out_name: Output filename
+
+    Returns:
+        bool: True if the mask was written.
     """
     if not threshold_layers:
         log_func("No threshold layers provided. Skipping threshold_mask.grd creation.")
-        return
-
-    log_func(f"Creating threshold mask grid with {len(threshold_layers)} layer(s) using {coord_system} coordinates...")
-    log_func(f"Default threshold value: {threshold_default_value}")
-
-    ny, nx = XA.shape
-
-    target_crs = get_working_crs()
-    processed_threshold_layers = {}
-
-    for layer, val in threshold_layers.items():
-        layer_crs = layer.crs()
-        transform = None
-        if layer_crs != target_crs:
-            transform = QgsCoordinateTransform(layer_crs, target_crs, QgsProject.instance())
-
-        processed_features = []
-        for feat in layer.getFeatures():
-            geom = QgsGeometry(feat.geometry())
-            if transform is not None:
-                geom.transform(transform)
-            if coord_system == "local":
-                geom.translate(-origin_x, -origin_y)
-
-            feat_new = QgsFeature(feat)
-            feat_new.setGeometry(geom)
-            processed_features.append(feat_new)
-
-        processed_threshold_layers[layer.name()] = (processed_features, val)
-
-    threshold_mask = np.full_like(XA, threshold_default_value, dtype=complex)
-
-    log_func(f"Processing grid cells: {ny - 1} x {nx - 1}")
-
-    total_cells = (ny - 1) * (nx - 1)
-    cells_with_threshold = 0
-
-    for ri in range(ny - 1):
-        for cj in range(nx - 1):
-            p1 = QgsPointXY(XA[ri, cj], YA[ri, cj])
-            p2 = QgsPointXY(XA[ri, cj+1], YA[ri, cj+1])
-            p3 = QgsPointXY(XA[ri+1, cj+1], YA[ri+1, cj+1])
-            p4 = QgsPointXY(XA[ri+1, cj], YA[ri+1, cj])
-            cell_poly = QgsGeometry.fromPolygonXY([[p1, p2, p3, p4, p1]])
-
-            # The layer with the largest intersection area wins the cell.
-            max_cov = 0
-            assigned_val = threshold_default_value
-            for feats, val in processed_threshold_layers.values():
-                cov = 0
-                for feat in feats:
-                    if feat.geometry().intersects(cell_poly):
-                        inter = feat.geometry().intersection(cell_poly)
-                        if not inter.isEmpty():
-                            cov += inter.area()
-
-                if cov > max_cov:
-                    max_cov = cov
-                    assigned_val = val
-
-            if assigned_val != threshold_default_value:
-                cells_with_threshold += 1
-                threshold_mask[ri, cj] = assigned_val
-                threshold_mask[ri, cj+1] = assigned_val
-                threshold_mask[ri+1, cj] = assigned_val
-                threshold_mask[ri+1, cj+1] = assigned_val
-
-    threshold_mask_path = out_dir / out_name
-
-    if not np.any(threshold_mask != threshold_default_value):
-        log_func("WARNING: No threshold values found in grid! Check if threshold layers intersect with the grid area.")
-
-    log_func(f"Writing threshold mask to: {threshold_mask_path}")
-    log_func(f"Total cells processed: {total_cells}, cells with custom values: {cells_with_threshold}")
-
-    try:
-        # AeoLiS reads complex values in the form (real+imagj).
-        with threshold_mask_path.open("w", encoding="utf-8") as f:
-            for ri in range(ny):
-                row_values = []
-                for cj in range(nx):
-                    val = threshold_mask[ri, cj]
-                    row_values.append(f"({val.real:.18e}{val.imag:+.18e}j)")
-                f.write(" ".join(row_values) + "\n")
-
-        log_func(f"Threshold mask grid written successfully: {threshold_mask_path}")
-
-        unique_values = np.unique(threshold_mask)
-        log_func("Threshold mask statistics:")
-        log_func(f"  Unique values: {len(unique_values)}")
-        for val in unique_values:
-            count = np.sum(threshold_mask == val)
-            percentage = (count / threshold_mask.size) * 100
-            log_func(f"  Value {val}: {count} nodes ({percentage:.1f}%)")
-
-    except Exception as e:
-        log_func(f"Error writing threshold mask grid: {e}")
         return False
 
-    return True
+    definition = CustomGridDefinition(
+        filename=out_name,
+        layer_values={layer: complex(value) for layer, value in threshold_layers.items()},
+        default_value=complex(threshold_default_value),
+    )
+    return create_custom_grids(XA, YA, origin_x, origin_y, out_dir, log_func,
+                               [definition], coord_system)
 
 
 def create_left_to_right_adaptive_grid(width, height, dy, min_cell_size, max_cell_size, log_func=None):

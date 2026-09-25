@@ -186,7 +186,7 @@ class ThresholdMaskSelectionDialog(QDialog):
         return selected
 
     def get_default_value(self):
-        """Return the default complex value for non-overlapping cells."""
+        """Return the default complex value for nodes outside all layers."""
         real_part = self.default_real_spin.value()
         imag_part = self.default_imag_spin.value()
         return complex(real_part, imag_part)

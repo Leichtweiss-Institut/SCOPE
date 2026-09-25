@@ -152,8 +152,11 @@ def _create_one_grid(XA, YA, grid_bounds, origin_x, origin_y,
     log_func(f"   Default value (uncovered nodes): {defn.default_value}")
     log_func("-" * 60)
 
-    # Node-shaped (ny, nx), like x.grd, y.grd and z.grd.
-    grid = np.full((ny, nx), defn.default_value, dtype=np.float64)
+    # Node-shaped (ny, nx), like x.grd, y.grd and z.grd. Complex values
+    # (threshold masks for AeoLiS) use a complex array.
+    values = [defn.default_value, *defn.layer_values.values()]
+    dtype = np.complex128 if any(isinstance(v, complex) for v in values) else np.float64
+    grid = np.full((ny, nx), defn.default_value, dtype=dtype)
 
     # Prepare layers (transform, localize, validate, bounds pre-filter).
     log_func("PROCESSING POLYGON LAYERS:")
@@ -168,7 +171,7 @@ def _create_one_grid(XA, YA, grid_bounds, origin_x, origin_y,
 
     total_layers = len([l for l in processed_layers.values() if l[0]])
     if total_layers == 0:
-        log_func("No valid geometries found in any layer!")
+        log_func(f"WARNING: No valid geometries found in any layer for {out_name}.")
         return False
 
     log_func(f"\nPROCESSING {total_layers} LAYER(S):")
@@ -357,12 +360,17 @@ def _process_layer(geometries, value, XA, YA, grid, nx, ny,
 
 
 def _write_grid(grid, out_dir, out_name, decimals, log_func):
-    """Write one custom grid to disk as space-separated text rows."""
+    """Write one grid to disk as space-separated text rows.
+
+    Complex grids are written at full precision in the (real+imagj) form that
+    AeoLiS reads; real grids use ``decimals`` places, and 0 writes integers.
+    """
     try:
         out_file = os.path.join(out_dir, out_name)
+        is_complex = np.iscomplexobj(grid)
 
-        log_func(f"   Writing: {os.path.basename(out_file)} "
-                 f"({grid.size:,} values, {decimals} decimal places)")
+        precision = "full precision, complex" if is_complex else f"{decimals} decimal places"
+        log_func(f"   Writing: {os.path.basename(out_file)} ({grid.size:,} values, {precision})")
 
         estimated_size_mb = (grid.size * 8) / (1024 * 1024)
         log_func(f"   Estimated file size: {estimated_size_mb:.1f} MB")
@@ -370,7 +378,9 @@ def _write_grid(grid, out_dir, out_name, decimals, log_func):
         with open(out_file, 'w') as f:
             ny, nx = grid.shape
             for i in range(ny):
-                if decimals == 0:
+                if is_complex:
+                    row_values = [f"({v.real:.18e}{v.imag:+.18e}j)" for v in grid[i]]
+                elif decimals == 0:
                     row_values = [str(int(round(grid[i, j]))) for j in range(nx)]
                 else:
                     row_values = [f"{grid[i, j]:.{decimals}f}" for j in range(nx)]

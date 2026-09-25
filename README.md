@@ -28,7 +28,7 @@ You draw and rotate a model domain on the QGIS map, and SCOPE writes:
 
 ## Requirements
 
-- QGIS 3.40 or later (tested with 3.40 to 3.44)
+- QGIS 3.40 to 3.44 (QGIS 4 is not yet supported)
 - NumPy, SciPy, Matplotlib and GDAL. These ship with the QGIS installers for
   Windows and macOS. On Linux, install them with your package manager if they
   are missing. Without SciPy, SCOPE falls back to nearest-neighbour
