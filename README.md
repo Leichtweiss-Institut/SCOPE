@@ -77,6 +77,10 @@ Windows, use forward slashes or a raw string for the path, for example
 
 ## Quick start
 
+To try SCOPE without your own data, use the elevation raster and vegetation
+polygons in [sample_data/](sample_data/README.md), which come with step-by-step
+settings.
+
 1. Load a bathymetry raster (and any polygon layers) into a QGIS project.
 2. Start SCOPE and click **Select bathymetry data**. Selecting several rasters
    enables batch processing.
@@ -128,6 +132,7 @@ SCOPE/
 │       └── preview.py       Matplotlib preview panes
 ├── utils/                   Working CRS, geometry helpers, layer tree grouping
 ├── tests/                   Unit tests (run without QGIS)
+├── sample_data/             Example raster and polygon layers for trying SCOPE
 ├── docs/                    Additional documentation
 └── LICENSE                  GNU GPL v2
 ```
