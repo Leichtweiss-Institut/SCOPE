@@ -120,12 +120,14 @@ SCOPE/
 ├── core/map_tools.py        Drawing and moving the model domain on the map
 ├── processing/
 │   ├── raster.py            Raster clipping, reprojection and XYZ export
-│   ├── custom_grid.py       Custom grid files from polygon layers
+│   ├── custom_grid.py       Custom grid files and threshold mask from polygon layers
 │   └── grid/
 │       ├── pipeline.py      Node layout, interpolation and output files
-│       ├── threshold.py     Adaptive cross-shore layouts and threshold mask
+│       ├── gridmath.py      Rotation and node coordinates
+│       ├── threshold.py     Adaptive cross-shore layouts and threshold crossing
 │       └── preview.py       Matplotlib preview panes
 ├── utils/                   Working CRS, geometry helpers, layer tree grouping
+├── tests/                   Unit tests (run without QGIS)
 ├── docs/                    Additional documentation
 └── LICENSE                  GNU GPL v2
 ```
@@ -135,6 +137,16 @@ scripts in a QGIS Python environment.
 
 See [docs/CUSTOM_GRID_ALGORITHM.md](docs/CUSTOM_GRID_ALGORITHM.md) for how
 custom grid files are computed.
+
+## Running tests
+
+The unit tests cover rotation, node coordinates, threshold crossing detection
+and the adaptive layouts. They need only NumPy and pytest, not QGIS:
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
 
 ## Troubleshooting
 

@@ -1,46 +1,8 @@
 """
-Adaptive cross-shore node layouts and the AeoLiS threshold mask.
+Adaptive cross-shore node layouts and threshold crossing detection.
 """
 import math
 import numpy as np
-
-from ..custom_grid import CustomGridDefinition, create_custom_grids
-
-
-def create_threshold_mask_grid(XA, YA, origin_x, origin_y, out_dir, log_func, threshold_layers,
-                               coord_system="local", threshold_default_value=complex(1.0, 0.0),
-                               out_name="threshold_mask.grd"):
-    """
-    Create threshold_mask.grd for AeoLiS from polygon layers with complex values.
-
-    Uses the same node-based point-in-polygon routine as the custom grid files:
-    each node takes the value of the last layer containing it, and all other
-    nodes keep the default value.
-
-    Args:
-        XA, YA: Node coordinate arrays of shape (ny, nx)
-        origin_x, origin_y: Origin subtracted from geometries in local mode
-        out_dir: Output directory
-        log_func: Logging function
-        threshold_layers: Dictionary of {layer: complex_value}
-        coord_system: "local" or "world"
-        threshold_default_value: Value for nodes not covered by any layer
-        out_name: Output filename
-
-    Returns:
-        bool: True if the mask was written.
-    """
-    if not threshold_layers:
-        log_func("No threshold layers provided. Skipping threshold_mask.grd creation.")
-        return False
-
-    definition = CustomGridDefinition(
-        filename=out_name,
-        layer_values={layer: complex(value) for layer, value in threshold_layers.items()},
-        default_value=complex(threshold_default_value),
-    )
-    return create_custom_grids(XA, YA, origin_x, origin_y, out_dir, log_func,
-                               [definition], coord_system)
 
 
 def create_left_to_right_adaptive_grid(width, height, dy, min_cell_size, max_cell_size, log_func=None):

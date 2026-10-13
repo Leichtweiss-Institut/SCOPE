@@ -5,13 +5,13 @@ from pathlib import Path
 
 import numpy as np
 
-from ...utils.geometry import rot_point
 from ...utils.constants import get_working_crs, NODATA_VAL
+from ..custom_grid import create_threshold_mask_grid
+from .gridmath import node_coordinates, rot_point, to_local_frame, uniform_axes
 from .preview import plot_custom_grid_preview, plot_grid_preview
 from .threshold import (
     create_left_to_right_adaptive_grid,
     create_threshold_based_adaptive_grid,
-    create_threshold_mask_grid,
     estimate_transition_factor,
     find_median_threshold_crossing,
 )
@@ -114,15 +114,10 @@ def create_grids_gui(ll, centre, w, h, ang_deg, dx, dy, xyz_file: Path, out_dir:
 
         if valid_sizes and adaptive_z_threshold is not None:
             # Rotate samples into the unrotated local frame to find row-wise crossings.
-            theta = np.radians(-ang_deg)
-            c, s = np.cos(theta), np.sin(theta)
-            dxg = pts_xy[:, 0] - rot_center_x
-            dyg = pts_xy[:, 1] - rot_center_y
-            unrot_x = rot_center_x + c * dxg - s * dyg
-            unrot_y = rot_center_y + s * dxg + c * dyg
-
-            local_x = unrot_x - actual_ll_x
-            local_y = unrot_y - actual_ll_y
+            local_x, local_y = to_local_frame(
+                pts_xy[:, 0], pts_xy[:, 1], ang_deg,
+                rot_center_x, rot_center_y, actual_ll_x, actual_ll_y,
+            )
 
             crossing_x = find_median_threshold_crossing(
                 local_x,
@@ -175,29 +170,15 @@ def create_grids_gui(ll, centre, w, h, ang_deg, dx, dy, xyz_file: Path, out_dir:
         ny = len(grid_y)
         log_func(f"Created adaptive grid with {nx}x{ny} points.")
     else:
-        nx = int(np.ceil(w / dx)) + 1
-        ny = int(np.ceil(h / dy)) + 1
+        grid_x, grid_y = uniform_axes(w, h, dx, dy)
+        nx = len(grid_x)
+        ny = len(grid_y)
         log_func(f"Creating uniform grid with {nx}x{ny} cells.")
 
     # Node coordinates in the working CRS.
-    XG = np.zeros((ny, nx))
-    YG = np.zeros((ny, nx))
+    XG, YG = node_coordinates(grid_x, grid_y, actual_ll_x, actual_ll_y,
+                              ang_deg, rot_center_x, rot_center_y)
     ZA = np.full((ny, nx), np.nan)
-
-    if use_adaptive_grid:
-        for ri in range(ny):
-            for cj in range(nx):
-                x_loc = actual_ll_x + grid_x[cj]
-                y_loc = actual_ll_y + grid_y[ri]
-                gx, gy = rot_point(x_loc, y_loc, ang_deg, rot_center_x, rot_center_y)
-                XG[ri, cj], YG[ri, cj] = gx, gy
-    else:
-        for ri in range(ny):
-            y_loc = actual_ll_y + ri * dy
-            for cj in range(nx):
-                x_loc = actual_ll_x + cj * dx
-                gx, gy = rot_point(x_loc, y_loc, ang_deg, rot_center_x, rot_center_y)
-                XG[ri, cj], YG[ri, cj] = gx, gy
 
     if SCIPY_OK:
         log_func("Using scipy linear interpolation (triangulation-based)...")

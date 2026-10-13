@@ -17,10 +17,12 @@ import zipfile
 PLUGIN_NAME = "SCOPE"
 
 # Development files and generated artifacts that do not ship with the plugin.
-EXCLUDE_DIRS = {".git", ".vscode", ".idea", "__pycache__", "build", "dist", ".ruff_cache"}
+EXCLUDE_DIRS = {".git", ".vscode", ".idea", "__pycache__", "build", "dist", ".ruff_cache",
+                ".pytest_cache", "tests"}
 EXCLUDE_FILES = [
     "*.py[cod]", "*.zip", "*.log", "*.grd", "*.xyz", "*.code-workspace",
     ".gitignore", ".gitattributes", "build_plugin.py", "build_plugin.sh", "launcher.py",
+    "pytest.ini", "requirements-dev.txt",
 ]
 
 

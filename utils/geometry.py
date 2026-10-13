@@ -44,23 +44,6 @@ def reproject_geom(geom, src_crs, dst_crs):
     return g2
 
 
-def rot_point(x, y, ang_deg, ox, oy):
-    """
-    Rotate a point around an origin.
-
-    Args:
-        x, y: Point coordinates
-        ang_deg: Rotation angle in degrees
-        ox, oy: Origin coordinates
-
-    Returns:
-        tuple: (x, y) rotated coordinates
-    """
-    r = math.radians(ang_deg)
-    c, s = math.cos(r), math.sin(r)
-    return (x - ox) * c - (y - oy) * s + ox, (x - ox) * s + (y - oy) * c + oy
-
-
 def axis_layer():
     """
     Get or create a temporary axis layer for XBeach origin visualization.

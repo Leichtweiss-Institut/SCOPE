@@ -9,7 +9,7 @@ from osgeo import gdal, ogr, osr
 
 from ..utils.geometry import reproject_geom
 from ..utils.constants import get_working_crs, NODATA_VAL
-from .grid import create_grids_gui
+from .grid.pipeline import create_grids_gui
 
 
 def clip_translate_grid_gui(raster, rect_geom, ll, centre, w, h, ang_deg, dx, dy, create_grids, log_func,

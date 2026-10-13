@@ -1,6 +1,6 @@
 """
 Grid generation package for SCOPE.
-"""
-from .pipeline import create_grids_gui
 
-__all__ = ["create_grids_gui"]
+Submodules are imported directly so that the QGIS-free ones (gridmath,
+threshold) can be used without QGIS.
+"""
