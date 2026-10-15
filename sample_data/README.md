@@ -7,7 +7,7 @@ Schleswig-Holstein), the site used in the SCOPE article.
 
 | File | Content | CRS |
 | --- | --- | --- |
-| `2022_sampleData.tiff` | Elevation in m above mean sea level, 10 m resolution, 4.3 × 3.1 km | EPSG:25832 |
+| `2022_sampleData.tiff` | Elevation in m relative to NHN (DHHN2016), 10 m resolution, 4.3 × 3.1 km | EPSG:25832 |
 | `veg_0.3.gpkg` | Sparse dune vegetation | EPSG:4326 |
 | `veg_0.5.gpkg` | Medium dune vegetation | EPSG:4326 |
 | `veg_0.7.gpkg` | Dense dune vegetation | EPSG:4326 |
