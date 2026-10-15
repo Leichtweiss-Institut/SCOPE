@@ -1,5 +1,7 @@
 # SCOPE
 
+[![tests](https://github.com/Leichtweiss-Institut/SCOPE/actions/workflows/test.yml/badge.svg)](https://github.com/Leichtweiss-Institut/SCOPE/actions/workflows/test.yml)
+
 **Spatial Coastal Operations and Processing Engine**: a QGIS plugin that
 generates model-ready grid files for the coastal models XBeach and AeoLiS from
 raster bathymetry and vector polygon layers.
@@ -192,6 +194,9 @@ and the adaptive layouts. They need only NumPy and pytest, not QGIS:
 pip install -r requirements-dev.txt
 pytest
 ```
+
+GitHub Actions runs the tests on Python 3.9 and 3.12 for every push and pull
+request.
 
 ## Troubleshooting
 
