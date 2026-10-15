@@ -75,6 +75,20 @@ modules on every run, so code changes take effect without restarting QGIS. On
 Windows, use forward slashes or a raw string for the path, for example
 `r'C:\Users\me\SCOPE-main\launcher.py'`.
 
+## Preparing input data
+
+- **Elevation:** any raster format GDAL can read works. A GeoTIFF with one
+  raster per survey is easiest. SCOPE reads band 1 as bed elevation in metres.
+- **Several sources:** if the elevation comes from separate surveys, for example
+  a ship-borne bathymetry and an airborne terrain model of the beach and dunes,
+  merge them into one continuous raster first. In QGIS, use
+  *Raster → Miscellaneous → Merge* or *Build Virtual Raster*. Where the inputs
+  overlap, the raster listed last wins. All inputs must share the same CRS and
+  vertical datum, so reproject with *Raster → Projections → Warp* if needed.
+- **Polygon layers:** any vector layer with polygons works, in any CRS. SCOPE
+  reprojects them to the working CRS. Where polygons of different layers
+  overlap, the layer listed later in the custom grid dialog wins.
+
 ## Quick start
 
 To try SCOPE without your own data, use the elevation raster and vegetation
@@ -110,6 +124,32 @@ settings.
 All grids have the same node shape as `x.grd`. Batch runs write one subfolder
 per raster. Split runs write one subfolder per sub-area, named
 `{raster}_area_row{r}_col{c}`, and prefix the file names with it.
+
+Each run appends a block to the log file, so repeated runs collect in one file.
+The block starts with a header that records the time, the raster, the working
+CRS, the domain (width, height, rotation and anchor), the coordinate output
+mode, and either the uniform spacing or the adaptive settings (minimum and
+maximum cell size, threshold and longshore spacing). It also lists the custom
+grid files and threshold mask layers. The resulting node counts and, for every
+custom grid and threshold mask, the number of nodes assigned per layer follow.
+The log is enough to reproduce a set of grids without the QGIS session that
+made them.
+
+## Choosing grid settings
+
+- **Cell size and raster resolution:** a cell size well below the sample
+  spacing of the raster adds no information. SCOPE only interpolates between
+  the same samples. Choose Δx and Min Δx with the survey resolution in mind.
+- **Stay inside the raster:** nodes outside the area covered by raster data
+  get the value of the nearest sample. This is fine for a narrow margin, but
+  keep the model domain within the raster coverage.
+- **Bed level threshold (adaptive grids):** the threshold decides where the
+  fine zone starts, so it has the largest effect on the result. Look at a
+  cross-shore profile of the site before setting it, for example at the dune
+  toe. If the spacing preview shows the transition in the wrong place, adjust
+  the threshold and run again. If no bed level in the domain exceeds the
+  threshold, SCOPE falls back to a cell size that changes linearly across the
+  domain and says so in the log.
 
 ## Project structure
 
@@ -169,7 +209,7 @@ Questions and bug reports: felix.ritter@tu-braunschweig.de
 ## Citation
 
 If you use SCOPE in your research, please cite the accompanying article
-(reference to follow).
+(reference to follow). Each release is archived on Zenodo with its own DOI.
 
 ## License
 

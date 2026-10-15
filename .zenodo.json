@@ -1,0 +1,32 @@
+{
+  "title": "SCOPE: Spatial Coastal Operations and Processing Engine",
+  "upload_type": "software",
+  "description": "<p>SCOPE is a QGIS plugin that generates model-ready grid files for the process-based coastal models XBeach and AeoLiS from raster bathymetry and vector polygon layers. Users draw and rotate a model domain on the QGIS map canvas, and SCOPE interpolates the elevation data onto uniform or threshold-driven adaptive grids, derives parameter grids such as vegetation density, hard layers or bed friction from polygon layers, and writes complex-valued threshold mask grids for AeoLiS.</p>",
+  "creators": [
+    {
+      "name": "Ritter, Felix",
+      "affiliation": "Technische Universität Braunschweig, Leichtweiß-Institute for Hydraulic Engineering and Water Resources"
+    },
+    {
+      "name": "Schweiger, Constantin",
+      "affiliation": "Technische Universität Braunschweig, Leichtweiß-Institute for Hydraulic Engineering and Water Resources"
+    },
+    {
+      "name": "Lojek, Oliver",
+      "affiliation": "Technische Universität Braunschweig, Leichtweiß-Institute for Hydraulic Engineering and Water Resources"
+    },
+    {
+      "name": "Goseberg, Nils",
+      "affiliation": "Technische Universität Braunschweig, Leichtweiß-Institute for Hydraulic Engineering and Water Resources; Coastal Research Center, Joint Central Institution of Leibniz Universität Hannover and Technische Universität Braunschweig"
+    }
+  ],
+  "license": "GPL-2.0-or-later",
+  "keywords": [
+    "QGIS plugin",
+    "XBeach",
+    "AeoLiS",
+    "grid generation",
+    "coastal modelling",
+    "bathymetry"
+  ]
+}

@@ -22,7 +22,7 @@ EXCLUDE_DIRS = {".git", ".vscode", ".idea", "__pycache__", "build", "dist", ".ru
 EXCLUDE_FILES = [
     "*.py[cod]", "*.zip", "*.log", "*.grd", "*.xyz", "*.code-workspace",
     ".gitignore", ".gitattributes", "build_plugin.py", "build_plugin.sh", "launcher.py",
-    "pytest.ini", "requirements-dev.txt",
+    "pytest.ini", "requirements-dev.txt", ".zenodo.json",
 ]
 
 

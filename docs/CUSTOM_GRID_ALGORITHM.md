@@ -76,8 +76,10 @@ QGIS responsive and to report progress.
 ### 4. Layer order
 
 Layers are processed in order and write directly into the grid, so later
-layers override earlier ones where they overlap. The order follows the layer
-order in the QGIS project.
+layers override earlier ones where they overlap. The order is the one in which
+the layers are listed in the custom grid dialog. That list comes from
+`QgsProject.mapLayers()`, which is sorted by layer ID, so in practice it follows
+the layer names. It is not the order of the QGIS Layers panel.
 
 ## Output
 
