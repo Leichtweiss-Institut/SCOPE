@@ -1,6 +1,7 @@
 # SCOPE
 
 [![tests](https://github.com/Leichtweiss-Institut/SCOPE/actions/workflows/test.yml/badge.svg)](https://github.com/Leichtweiss-Institut/SCOPE/actions/workflows/test.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23495239.svg)](https://doi.org/10.5281/zenodo.23495239)
 
 **Spatial Coastal Operations and Processing Engine**: a QGIS plugin that
 generates model-ready grid files for the coastal models XBeach and AeoLiS from
@@ -214,7 +215,15 @@ Questions and bug reports: felix.ritter@tu-braunschweig.de
 ## Citation
 
 If you use SCOPE in your research, please cite the accompanying article
-(reference to follow). Each release is archived on Zenodo with its own DOI.
+(reference to follow) and the version of the software you used. Each release is
+archived on Zenodo with its own DOI. For version 1.0.0:
+
+> Ritter, F., Schweiger, C., Lojek, O., Goseberg, N. (2026). SCOPE: Spatial
+> Coastal Operations and Processing Engine (v1.0.0) [Software]. Zenodo.
+> <https://doi.org/10.5281/zenodo.23495240>
+
+The DOI [10.5281/zenodo.23495239](https://doi.org/10.5281/zenodo.23495239)
+always resolves to the latest version.
 
 ## License
 
