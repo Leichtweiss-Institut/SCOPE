@@ -61,6 +61,31 @@ def uniform_axes(width, height, dx, dy):
     return np.arange(nx) * dx, np.arange(ny) * dy
 
 
+def node_rows(x_axis, y_rows, ll_x, ll_y, ang_deg, ox, oy):
+    """
+    World coordinates of the grid nodes in the given rows.
+
+    Uses the same operations in the same order as ``rot_point``, so the
+    result is bit-identical to rotating each node on its own.
+
+    Args:
+        x_axis: Local node positions along x
+        y_rows: Local y positions of the rows to compute
+        ll_x, ll_y: Unrotated lower-left corner
+        ang_deg: Rotation angle in degrees
+        ox, oy: Rotation centre
+
+    Returns:
+        tuple: (XG, YG) arrays of shape (len(y_rows), len(x_axis))
+    """
+    r = math.radians(ang_deg)
+    c, s = math.cos(r), math.sin(r)
+    dx = (ll_x + np.asarray(x_axis, dtype=float)) - ox
+    dy = (ll_y + np.asarray(y_rows, dtype=float)) - oy
+    dx, dy = dx[np.newaxis, :], dy[:, np.newaxis]
+    return dx * c - dy * s + ox, dx * s + dy * c + oy
+
+
 def node_coordinates(x_axis, y_axis, ll_x, ll_y, ang_deg, ox, oy):
     """
     World coordinates of all grid nodes.
@@ -74,12 +99,4 @@ def node_coordinates(x_axis, y_axis, ll_x, ll_y, ang_deg, ox, oy):
     Returns:
         tuple: (XG, YG) arrays of shape (ny, nx)
     """
-    ny, nx = len(y_axis), len(x_axis)
-    XG = np.zeros((ny, nx))
-    YG = np.zeros((ny, nx))
-    for ri in range(ny):
-        y_loc = ll_y + y_axis[ri]
-        for cj in range(nx):
-            x_loc = ll_x + x_axis[cj]
-            XG[ri, cj], YG[ri, cj] = rot_point(x_loc, y_loc, ang_deg, ox, oy)
-    return XG, YG
+    return node_rows(x_axis, y_axis, ll_x, ll_y, ang_deg, ox, oy)
