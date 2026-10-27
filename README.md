@@ -153,6 +153,16 @@ made them.
   the threshold and run again. If no bed level in the domain exceeds the
   threshold, SCOPE falls back to a cell size that changes linearly across the
   domain and says so in the log.
+- **Grid size:** grids are interpolated and written a block of rows at a
+  time, so memory use does not grow with the number of nodes. It is set
+  mainly by the number of raster samples in the model area (about 300 bytes
+  each). Disk use and run time still grow with the node count: each node adds
+  roughly 40 bytes to `x.grd`, `y.grd` and `z.grd`, plus each custom grid and
+  the threshold mask. Before processing, SCOPE logs a size estimate. It asks
+  for confirmation when a grid has more than 50 million nodes, when the
+  output would fill more than 80 % of the free disk space, when the input
+  samples need more than 70 % of the available memory, or when the custom
+  grids would take more than about an hour.
 
 ## Project structure
 
@@ -170,6 +180,8 @@ SCOPE/
 │   ├── custom_grid.py       Custom grid files and threshold mask from polygon layers
 │   └── grid/
 │       ├── pipeline.py      Node layout, interpolation and output files
+│       ├── stream.py        Block-wise node coordinates, interpolation and writing
+│       ├── estimate.py      Size estimates for the large-run warning
 │       ├── gridmath.py      Rotation and node coordinates
 │       ├── threshold.py     Adaptive cross-shore layouts and threshold crossing
 │       └── preview.py       Matplotlib preview panes
@@ -188,8 +200,10 @@ custom grid files are computed.
 
 ## Running tests
 
-The unit tests cover rotation, node coordinates, threshold crossing detection
-and the adaptive layouts. They need only NumPy and pytest, not QGIS:
+The unit tests cover rotation, node coordinates, threshold crossing detection,
+the adaptive layouts, block-wise processing (checked against processing the
+whole grid at once) and the size estimates. They need NumPy, SciPy and pytest,
+not QGIS:
 
 ```bash
 pip install -r requirements-dev.txt
@@ -207,6 +221,10 @@ request.
   CRS. Set the project CRS to the CRS you want to work in.
 - **Slow custom grids:** run time grows with the number of nodes and polygons.
   Use a coarser grid or simplify the polygons.
+- **Size warning before processing:** the estimate in the dialog and the log
+  shows which limit the run exceeds. Reduce the model area, use a coarser
+  spacing or split the area. Splitting reduces memory use per sub-area, but
+  not the total disk space.
 
 ## Support
 

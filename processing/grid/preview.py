@@ -83,39 +83,27 @@ def _add_matched_colorbar(fig, ax, mesh, label):
     return cbar
 
 
-def plot_custom_grid_preview(XA, YA, grid_path, log_func, ang_deg=0.0, raster_name=None):
-    """Show a preview pane for one custom grid file if it exists."""
-    if not grid_path.is_file():
-        log_func(f"Custom grid preview skipped: {grid_path.name} not found.")
+def plot_custom_grid_preview(XA, YA, values, name, log_func, ang_deg=0.0, raster_name=None):
+    """Show a preview pane for one custom grid.
+
+    ``values`` are node-shaped like XA and YA, which may be sampled grids.
+    """
+    if values.shape != XA.shape:
+        log_func(f"Custom grid preview skipped: shape mismatch {values.shape} vs {XA.shape}")
         return
 
     try:
         import matplotlib.pyplot as plt
         _configure_matplotlib_defaults()
-        values = np.loadtxt(grid_path, dtype=float)
         XP, YP = _to_extent_coordinates(XA, YA, ang_deg)
 
-        expected_cell_shape = (XA.shape[0] - 1, XA.shape[1] - 1)
-        expected_node_shape = XA.shape
-
-        if values.shape == expected_cell_shape:
-            values_plot = values
-        elif values.shape == expected_node_shape:
-            # Custom grids are written node-based; convert to cell values for preview.
-            values_plot = values[:-1, :-1]
-            log_func(
-                f"Custom grid preview: converted node-shaped grid {values.shape} to cell view {values_plot.shape}."
-            )
-        else:
-            log_func(
-                f"Custom grid preview skipped: shape mismatch {values.shape} vs expected {expected_cell_shape} or {expected_node_shape}"
-            )
-            return
+        # Custom grids are node-based; drop the last row and column for a cell view.
+        values_plot = np.real(values[:-1, :-1])
 
         fig, ax = plt.subplots(figsize=(9, 6))
         mesh = ax.pcolormesh(XP, YP, values_plot, cmap="viridis", shading="auto")
         _add_matched_colorbar(fig, ax, mesh, "Value")
-        ax.set_title(f"{grid_path.name}{_preview_title_suffix(raster_name)}", fontsize=_TITLE_FS)
+        ax.set_title(f"{name}{_preview_title_suffix(raster_name)}", fontsize=_TITLE_FS)
         ax.set_xlabel("X extent (m)", fontsize=_LABEL_FS, labelpad=_LABELPAD)
         ax.set_ylabel("Y extent (m)", fontsize=_LABEL_FS, labelpad=_LABELPAD)
         ax.tick_params(axis="both", labelsize=_TICK_FS)
@@ -123,19 +111,22 @@ def plot_custom_grid_preview(XA, YA, grid_path, log_func, ang_deg=0.0, raster_na
         ax.grid(True, alpha=0.2)
         plt.tight_layout()
         plt.show(block=False)
-        log_func(f"Opened custom grid preview window for {grid_path.name}.")
+        log_func(f"Opened custom grid preview window for {name}.")
     except Exception as e:
-        log_func(f"Custom grid preview failed for {grid_path.name}: {e}")
+        log_func(f"Custom grid preview failed for {name}: {e}")
 
 
 def plot_grid_preview(XA, YA, ZA, log_func, title="Grid Preview", max_lines=180,
                        show_spacing=True, show_bed_2d=True, show_3d_preview=True, ang_deg=0.0,
-                       raster_name=None):
+                       raster_name=None, dx_cells=None):
     """Show matplotlib previews for grid spacing and bed level terrain.
 
     Each preview is gated by its own flag so the caller can open any subset:
     ``show_spacing`` (cross-shore Δx map), ``show_bed_2d`` (2D terrain) and
     ``show_3d_preview`` (3D terrain).
+
+    ``dx_cells`` gives the Δx per preview cell, shape (ny-1, nx-1), for
+    sampled grids; when None it is computed from XA and YA.
     """
     try:
         import matplotlib.pyplot as plt
@@ -154,9 +145,10 @@ def plot_grid_preview(XA, YA, ZA, log_func, title="Grid Preview", max_lines=180,
         if show_spacing:
             fig, ax = plt.subplots(figsize=(9, 6))
 
-            # Cross-shore spacing per edge and cell-centered value for colormapping.
-            dx_edges = np.hypot(np.diff(XA, axis=1), np.diff(YA, axis=1))  # (ny, nx-1)
-            dx_cells = 0.5 * (dx_edges[:-1, :] + dx_edges[1:, :])  # (ny-1, nx-1)
+            if dx_cells is None:
+                # Cross-shore spacing per edge and cell-centered value for colormapping.
+                dx_edges = np.hypot(np.diff(XA, axis=1), np.diff(YA, axis=1))  # (ny, nx-1)
+                dx_cells = 0.5 * (dx_edges[:-1, :] + dx_edges[1:, :])  # (ny-1, nx-1)
 
             # On uniform grids Δx differs only by rounding noise; widen the colour
             # range so that noise does not show up as a chessboard pattern.

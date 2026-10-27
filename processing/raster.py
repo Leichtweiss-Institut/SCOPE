@@ -9,6 +9,8 @@ from osgeo import gdal, ogr, osr
 
 from ..utils.geometry import reproject_geom
 from ..utils.constants import get_working_crs, NODATA_VAL
+from .progress import NullProgress
+from .grid.estimate import DATA_BUFFER
 from .grid.pipeline import create_grids_gui
 
 
@@ -21,7 +23,7 @@ def clip_translate_grid_gui(raster, rect_geom, ll, centre, w, h, ang_deg, dx, dy
                            adaptive_z_threshold=None, adaptive_transition_factor=None,
                            show_grid_spacing_preview=False, show_bed_2d_preview=False,
                            show_bed_3d_preview=False, show_custom_grid_preview=False,
-                           xyz_path=None, log_path=None):
+                           xyz_path=None, log_path=None, progress=None):
     """
     Clip a raster to the model area, export it as XYZ and build the grids from it.
 
@@ -52,8 +54,10 @@ def clip_translate_grid_gui(raster, rect_geom, ll, centre, w, h, ang_deg, dx, dy
         show_*_preview: Open the corresponding matplotlib preview pane
         xyz_path: Where to write the clipped XYZ; grids go to the same folder
         log_path: Run log file to append to, or None for no file log
+        progress: Progress reporter (see processing.progress), or None
     """
     base_log_func = log_func
+    progress = progress or NullProgress()
     runtime_log_path = Path(log_path) if log_path else None
     xyz_path = Path(xyz_path)
 
@@ -107,7 +111,7 @@ def clip_translate_grid_gui(raster, rect_geom, ll, centre, w, h, ang_deg, dx, dy
         _write_run_header()
 
     # Extract data beyond the model area so interpolation near its edges has support.
-    buffer_distance = 50.0
+    buffer_distance = DATA_BUFFER
     log_func(f"Expanding data extraction area by {buffer_distance}m for better boundary interpolation...")
     expanded_rect_geom = rect_geom.buffer(buffer_distance, 5)
 
@@ -169,6 +173,7 @@ def clip_translate_grid_gui(raster, rect_geom, ll, centre, w, h, ang_deg, dx, dy
     ds = None
 
     tmp_clip = Path(tempfile.gettempdir()) / f"clip_tmp_{raster_name}.tif"
+    progress.start("Clipping raster", 1)
     gdal.Warp(
         tmp_clip.as_posix(),
         raster_path,
@@ -176,22 +181,27 @@ def clip_translate_grid_gui(raster, rect_geom, ll, centre, w, h, ang_deg, dx, dy
         cutlineDSName=shp_path,
         cropToCutline=True,
         dstNodata=NODATA_VAL,
+        callback=progress.gdal_callback,
     )
 
     tmp_warp = Path(tempfile.gettempdir()) / f"clip_tmp_warp_{raster_name}.tif"
+    progress.start("Reprojecting raster", 1)
     gdal.Warp(
         tmp_warp.as_posix(),
         tmp_clip.as_posix(),
         dstSRS=get_working_crs().authid(),
         resampleAlg="near",
         dstNodata=NODATA_VAL,
+        callback=progress.gdal_callback,
     )
 
     xyz_path.parent.mkdir(parents=True, exist_ok=True)
     log_func(f"Saving {raster_name} to: {xyz_path}")
     xyz_path.unlink(missing_ok=True)
 
-    gdal.Translate(xyz_path.as_posix(), tmp_warp.as_posix(), format="XYZ")
+    progress.start("Exporting XYZ", 1)
+    gdal.Translate(xyz_path.as_posix(), tmp_warp.as_posix(), format="XYZ",
+                   callback=progress.gdal_callback)
 
     if xyz_path.is_file():
         log_func(f"XYZ written: {xyz_path}")
@@ -206,7 +216,8 @@ def clip_translate_grid_gui(raster, rect_geom, ll, centre, w, h, ang_deg, dx, dy
                            show_bed_2d_preview=show_bed_2d_preview,
                            show_bed_3d_preview=show_bed_3d_preview,
                            show_custom_grid_preview=show_custom_grid_preview,
-                           raster_name=raster_name)
+                           raster_name=raster_name,
+                           progress=progress)
     else:
         log_func(f"Translate finished but XYZ missing for {raster_name}!")
 

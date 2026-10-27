@@ -9,6 +9,8 @@ The AeoLiS threshold mask is written the same way, with complex values.
 
 Containment is tested with a QGIS R-tree index, a bounding-box pre-filter and
 an exact point-in-polygon test, so run time scales roughly with node count.
+Nodes are processed and written a block of rows at a time, so memory use does
+not grow with the grid size.
 """
 import os
 import time
@@ -26,6 +28,8 @@ from qgis.core import (
 )
 
 from ..utils.constants import get_working_crs
+from .grid.stream import PreviewSampler
+from .progress import NullProgress
 
 try:
     from qgis.PyQt import sip
@@ -84,8 +88,9 @@ class CustomGridDefinition:
         )
 
 
-def create_custom_grids(XA, YA, origin_x, origin_y, out_dir, log_func, definitions,
-                        coord_system="local", output_prefix=None):
+def create_custom_grids(grid, bounds, origin_x, origin_y, out_dir, log_func, definitions,
+                        coord_system="local", output_prefix=None, preview_func=None,
+                        progress=None):
     """
     Create all enabled custom grid files using QGIS spatial indexing.
 
@@ -94,13 +99,18 @@ def create_custom_grids(XA, YA, origin_x, origin_y, out_dir, log_func, definitio
     in order; later layers override earlier ones where they overlap.
 
     Args:
-        XA, YA: Grid coordinate arrays (node coordinates, shape (ny, nx)).
+        grid: NodeGrid that yields the node coordinates block by block.
+        bounds: GridBounds of the output coordinates.
         origin_x, origin_y: Grid origin coordinates.
         out_dir: Output directory path.
         log_func: Function to log progress messages.
         definitions: List of CustomGridDefinition objects.
         coord_system: "local" or "world" coordinate system.
         output_prefix: Optional prefix for output file names (split areas).
+        preview_func: Optional callable(out_name, values) called after each
+            written grid whose definition has show_preview set; ``values``
+            are sampled like PreviewSampler(grid.shape).
+        progress: Progress reporter (see processing.progress), or None.
 
     Returns:
         bool: True if every enabled grid was written successfully.
@@ -109,7 +119,7 @@ def create_custom_grids(XA, YA, origin_x, origin_y, out_dir, log_func, definitio
     if not definitions:
         return True
 
-    ny, nx = XA.shape
+    ny, nx = grid.shape
     total_nodes = ny * nx
 
     log_func("CUSTOM GRID CREATION STARTED")
@@ -118,10 +128,9 @@ def create_custom_grids(XA, YA, origin_x, origin_y, out_dir, log_func, definitio
     log_func("-" * 60)
 
     # Grid bounds are used to discard polygons that cannot contain any grid node.
-    x_min, x_max = float(XA.min()), float(XA.max())
-    y_min, y_max = float(YA.min()), float(YA.max())
-    grid_bounds = QgsRectangle(x_min, y_min, x_max, y_max)
-    log_func(f"Grid bounds: X({x_min:.2f}, {x_max:.2f}), Y({y_min:.2f}, {y_max:.2f})")
+    grid_bounds = QgsRectangle(bounds.x_min, bounds.y_min, bounds.x_max, bounds.y_max)
+    log_func(f"Grid bounds: X({bounds.x_min:.2f}, {bounds.x_max:.2f}), "
+             f"Y({bounds.y_min:.2f}, {bounds.y_max:.2f})")
 
     all_ok = True
     for defn in definitions:
@@ -130,8 +139,10 @@ def create_custom_grids(XA, YA, origin_x, origin_y, out_dir, log_func, definitio
             out_name = f"{output_prefix}_{out_name}"
         try:
             ok = _create_one_grid(
-                XA, YA, grid_bounds, origin_x, origin_y,
-                out_dir, out_name, log_func, defn, coord_system
+                grid, grid_bounds, origin_x, origin_y,
+                out_dir, out_name, log_func, defn, coord_system,
+                preview_func if defn.show_preview else None,
+                progress or NullProgress(),
             )
         except Exception as e:
             log_func(f"Error creating custom grid '{out_name}': {str(e)}")
@@ -142,9 +153,9 @@ def create_custom_grids(XA, YA, origin_x, origin_y, out_dir, log_func, definitio
     return all_ok
 
 
-def create_threshold_mask_grid(XA, YA, origin_x, origin_y, out_dir, log_func, threshold_layers,
+def create_threshold_mask_grid(grid, bounds, origin_x, origin_y, out_dir, log_func, threshold_layers,
                                coord_system="local", threshold_default_value=complex(1.0, 0.0),
-                               out_name="threshold_mask.grd"):
+                               out_name="threshold_mask.grd", progress=None):
     """
     Create threshold_mask.grd for AeoLiS from polygon layers with complex values.
 
@@ -153,7 +164,8 @@ def create_threshold_mask_grid(XA, YA, origin_x, origin_y, out_dir, log_func, th
     nodes keep the default value.
 
     Args:
-        XA, YA: Node coordinate arrays of shape (ny, nx)
+        grid: NodeGrid that yields the node coordinates block by block
+        bounds: GridBounds of the output coordinates
         origin_x, origin_y: Origin subtracted from geometries in local mode
         out_dir: Output directory
         log_func: Logging function
@@ -161,6 +173,7 @@ def create_threshold_mask_grid(XA, YA, origin_x, origin_y, out_dir, log_func, th
         coord_system: "local" or "world"
         threshold_default_value: Value for nodes not covered by any layer
         out_name: Output filename
+        progress: Progress reporter (see processing.progress), or None
 
     Returns:
         bool: True if the mask was written.
@@ -174,16 +187,18 @@ def create_threshold_mask_grid(XA, YA, origin_x, origin_y, out_dir, log_func, th
         layer_values={layer: complex(value) for layer, value in threshold_layers.items()},
         default_value=complex(threshold_default_value),
     )
-    return create_custom_grids(XA, YA, origin_x, origin_y, out_dir, log_func,
-                               [definition], coord_system)
+    return create_custom_grids(grid, bounds, origin_x, origin_y, out_dir, log_func,
+                               [definition], coord_system, progress=progress)
 
 
-def _create_one_grid(XA, YA, grid_bounds, origin_x, origin_y,
-                     out_dir, out_name, log_func, defn, coord_system):
-    """Compute and write a single custom grid file from its definition."""
+def _create_one_grid(grid, grid_bounds, origin_x, origin_y,
+                     out_dir, out_name, log_func, defn, coord_system, preview_func=None,
+                     progress=None):
+    """Compute and write a single custom grid file from its definition, block by block."""
     start_time = time.time()
 
-    ny, nx = XA.shape
+    ny, nx = grid.shape
+    total_nodes = ny * nx
 
     log_func(f"\nCUSTOM GRID FILE: {out_name}")
     log_func(f"   Default value (uncovered nodes): {defn.default_value}")
@@ -193,9 +208,11 @@ def _create_one_grid(XA, YA, grid_bounds, origin_x, origin_y,
     # (threshold masks for AeoLiS) use a complex array.
     values = [defn.default_value, *defn.layer_values.values()]
     dtype = np.complex128 if any(isinstance(v, complex) for v in values) else np.float64
-    grid = np.full((ny, nx), defn.default_value, dtype=dtype)
+
+    progress = progress or NullProgress()
 
     # Prepare layers (transform, localize, validate, bounds pre-filter).
+    progress.start(f"Preparing layers for {out_name}")
     log_func("PROCESSING POLYGON LAYERS:")
     target_crs = get_working_crs()
     layer_values = defn.valid_layer_values()
@@ -213,44 +230,53 @@ def _create_one_grid(XA, YA, grid_bounds, origin_x, origin_y,
 
     log_func(f"\nPROCESSING {total_layers} LAYER(S):")
 
-    layer_count = 0
-    total_nodes_updated = 0
-
+    # Spatial indexes are built once and reused for every block.
+    layers = []
     for layer_name, (geometries, value) in processed_layers.items():
         if not geometries:
             continue
-
-        layer_count += 1
-        layer_start_time = time.time()
-
-        log_func(f"   [{layer_count:2d}/{total_layers}] Processing '{layer_name}' "
+        log_func(f"   [{len(layers) + 1:2d}/{total_layers}] Indexing '{layer_name}' "
                  f"(value={value})...")
+        layers.append(_LayerIndex(layer_name, value, geometries, log_func))
 
-        # Keep the UI responsive.
-        QgsApplication.processEvents()
+    is_complex = dtype == np.complex128
+    precision = "full precision, complex" if is_complex else f"{defn.decimals} decimal places"
+    out_file = os.path.join(out_dir, out_name)
+    log_func(f"\nChecking node containment and writing {out_name} "
+             f"({total_nodes:,} values, {precision})...")
 
-        nodes_updated = _process_layer(
-            geometries, value, XA, YA, grid, nx, ny,
-            layer_start_time, log_func
-        )
+    node_progress = _Progress(total_nodes * len(layers), start_time, log_func, progress)
+    progress.start(f"Writing {out_name}", node_progress.total)
+    sampler = PreviewSampler(grid.shape) if preview_func is not None else None
+    with open(out_file, 'w') as f:
+        for row_start, _, _, XA, YA in grid.blocks():
+            block = np.full(XA.shape, defn.default_value, dtype=dtype)
+            # Later layers overwrite earlier ones, as when processing layer by layer.
+            for layer in layers:
+                layer.assign(XA, YA, block, node_progress)
+            for row in block:
+                f.write(_format_row(row, defn.decimals, is_complex) + "\n")
+            if sampler is not None:
+                sampler.add(row_start, block)
 
-        layer_time = time.time() - layer_start_time
-        total_nodes_updated += nodes_updated
-        coverage_percent = (nodes_updated / (ny * nx)) * 100
-
-        log_func(f"            Updated {nodes_updated:,} nodes ({coverage_percent:.2f}% coverage)")
-        log_func(f"            Layer completed in {layer_time:.2f}s")
+    for i, layer in enumerate(layers, 1):
+        coverage_percent = (layer.nodes_updated / total_nodes) * 100
+        log_func(f"   [{i:2d}/{len(layers)}] '{layer.name}': updated {layer.nodes_updated:,} nodes "
+                 f"({coverage_percent:.2f}% coverage) in {layer.seconds:.2f}s")
 
     total_time = time.time() - start_time
+    total_nodes_updated = sum(layer.nodes_updated for layer in layers)
 
     log_func("\nPROCESSING COMPLETE:")
-    log_func(f"   Total nodes updated: {total_nodes_updated:,}/{ny*nx:,} "
-             f"({(total_nodes_updated/(ny*nx))*100:.2f}%)")
+    log_func(f"   Total nodes updated: {total_nodes_updated:,}/{total_nodes:,} "
+             f"({(total_nodes_updated/total_nodes)*100:.2f}%)")
     log_func(f"   Processing time: {total_time:.2f}s")
-    log_func(f"   Average speed: {(ny*nx)/total_time:,.0f} nodes/second")
+    log_func(f"   Average speed: {total_nodes/total_time:,.0f} nodes/second")
+    log_func(f"   File written: {os.path.getsize(out_file) / (1024 * 1024):.1f} MB")
 
-    log_func("\nSAVING RESULTS:")
-    return _write_grid(grid, out_dir, out_name, defn.decimals, log_func)
+    if sampler is not None:
+        preview_func(out_name, sampler.arrays()[0])
+    return True
 
 
 def _process_layers(layer_values, target_crs, origin_x, origin_y,
@@ -326,107 +352,103 @@ def _process_layers(layer_values, target_crs, origin_x, origin_y,
     return processed_layers
 
 
-def _process_layer(geometries, value, XA, YA, grid, nx, ny,
-                   layer_start_time, log_func):
-    """
-    Assign ``value`` to every grid node that lies inside one of
-    ``geometries``, using a spatial index with cached bounding boxes.
-    """
-    if not geometries:
-        return 0
+class _Progress:
+    """Logs and reports progress and keeps the UI responsive every ``batch_size`` nodes."""
 
-    log_func(f"            Building spatial index for {len(geometries):,} features...")
-
-    spatial_index = QgsSpatialIndex()
-    geom_dict = {}
-    geom_bounds = {}
-
-    for i, geom in enumerate(geometries):
-        feat = QgsFeature()
-        feat.setGeometry(geom)
-        feat.setId(i)
-        spatial_index.addFeature(feat)
-        geom_dict[i] = geom
-        geom_bounds[i] = geom.boundingBox()  # Cache bounding boxes once.
-
-    log_func("            Spatial index created with cached bounds")
-    log_func("            Checking node containment...")
-
-    nodes_updated = 0
-    total_nodes = ny * nx
-
-    # Batch only to keep the UI responsive; batching does not affect the result.
     batch_size = 50000
 
-    for batch_start in range(0, total_nodes, batch_size):
-        batch_end = min(batch_start + batch_size, total_nodes)
+    def __init__(self, total, start_time, log_func, reporter):
+        self.total = total
+        self.start_time = start_time
+        self.log_func = log_func
+        self.reporter = reporter
+        self.done = 0
+        self._next = self.batch_size
 
-        for node_idx in range(batch_start, batch_end):
-            i = node_idx // nx
-            j = node_idx % nx
-
-            x_node = float(XA[i, j])
-            y_node = float(YA[i, j])
-            node_point = QgsPointXY(x_node, y_node)
-
-            # Bounding-box pre-filter on the nearest candidate features.
-            candidate_ids = []
-            for geom_id in spatial_index.nearestNeighbor(node_point, 10):
-                bounds = geom_bounds[geom_id]
-                if (bounds.xMinimum() <= x_node <= bounds.xMaximum() and
-                        bounds.yMinimum() <= y_node <= bounds.yMaximum()):
-                    candidate_ids.append(geom_id)
-
-            # Exact point-in-polygon only for candidates that pass the bbox test.
-            for geom_id in candidate_ids:
-                if geom_dict[geom_id].contains(node_point):
-                    grid[i, j] = value
-                    nodes_updated += 1
-                    break  # Found a containing polygon; move on.
-
-        # Update the UI and report progress once per batch.
+    def advance(self, n):
+        self.done += n
+        if self.done < self._next and self.done < self.total:
+            return
+        self._next = self.done + self.batch_size
         QgsApplication.processEvents()
-        progress = (batch_end / total_nodes) * 100
-        log_func(f"            Progress: {progress:.1f}% ({batch_end:,}/{total_nodes:,} nodes)")
-        elapsed = time.time() - layer_start_time
-        if elapsed > 0 and batch_end > 0:
-            estimated_remaining = (total_nodes - batch_end) / (batch_end / elapsed)
-            log_func(f"            ETA: {estimated_remaining:.1f} seconds remaining")
+        self.reporter.update(self.done)
+        self.log_func(f"            Progress: {self.done / self.total * 100:.1f}% "
+                      f"({self.done:,}/{self.total:,} node checks)")
+        elapsed = time.time() - self.start_time
+        if elapsed > 0 and self.done < self.total:
+            remaining = (self.total - self.done) / (self.done / elapsed)
+            self.log_func(f"            ETA: {remaining:.1f} seconds remaining")
 
-    return nodes_updated
+
+class _LayerIndex:
+    """Spatial index of one layer's geometries, with cached bounding boxes."""
+
+    def __init__(self, name, value, geometries, log_func):
+        self.name = name
+        self.value = value
+        self.nodes_updated = 0
+        self.seconds = 0.0
+
+        log_func(f"            Building spatial index for {len(geometries):,} features...")
+        self.spatial_index = QgsSpatialIndex()
+        self.geom_dict = {}
+        self.geom_bounds = {}
+        for i, geom in enumerate(geometries):
+            feat = QgsFeature()
+            feat.setGeometry(geom)
+            feat.setId(i)
+            self.spatial_index.addFeature(feat)
+            self.geom_dict[i] = geom
+            self.geom_bounds[i] = geom.boundingBox()  # Cache bounding boxes once.
+        log_func("            Spatial index created with cached bounds")
+
+    def assign(self, XA, YA, block, progress):
+        """Set ``value`` on every node of the block that lies inside one of the geometries."""
+        start = time.time()
+        rows, nx = block.shape
+        batch_size = progress.batch_size
+
+        for batch_start in range(0, rows * nx, batch_size):
+            batch_end = min(batch_start + batch_size, rows * nx)
+
+            for node_idx in range(batch_start, batch_end):
+                i = node_idx // nx
+                j = node_idx % nx
+
+                x_node = float(XA[i, j])
+                y_node = float(YA[i, j])
+                node_point = QgsPointXY(x_node, y_node)
+
+                # Bounding-box pre-filter on the nearest candidate features.
+                candidate_ids = []
+                for geom_id in self.spatial_index.nearestNeighbor(node_point, 10):
+                    bounds = self.geom_bounds[geom_id]
+                    if (bounds.xMinimum() <= x_node <= bounds.xMaximum() and
+                            bounds.yMinimum() <= y_node <= bounds.yMaximum()):
+                        candidate_ids.append(geom_id)
+
+                # Exact point-in-polygon only for candidates that pass the bbox test.
+                for geom_id in candidate_ids:
+                    if self.geom_dict[geom_id].contains(node_point):
+                        block[i, j] = self.value
+                        self.nodes_updated += 1
+                        break  # Found a containing polygon; move on.
+
+            progress.advance(batch_end - batch_start)
+
+        self.seconds += time.time() - start
 
 
-def _write_grid(grid, out_dir, out_name, decimals, log_func):
-    """Write one grid to disk as space-separated text rows.
+def _format_row(row, decimals, is_complex):
+    """Format one grid row as space-separated text.
 
     Complex grids are written at full precision in the (real+imagj) form that
     AeoLiS reads; real grids use ``decimals`` places, and 0 writes integers.
     """
-    try:
-        out_file = os.path.join(out_dir, out_name)
-        is_complex = np.iscomplexobj(grid)
-
-        precision = "full precision, complex" if is_complex else f"{decimals} decimal places"
-        log_func(f"   Writing: {os.path.basename(out_file)} ({grid.size:,} values, {precision})")
-
-        estimated_size_mb = (grid.size * 8) / (1024 * 1024)
-        log_func(f"   Estimated file size: {estimated_size_mb:.1f} MB")
-
-        with open(out_file, 'w') as f:
-            ny, nx = grid.shape
-            for i in range(ny):
-                if is_complex:
-                    row_values = [f"({v.real:.18e}{v.imag:+.18e}j)" for v in grid[i]]
-                elif decimals == 0:
-                    row_values = [str(int(round(grid[i, j]))) for j in range(nx)]
-                else:
-                    row_values = [f"{grid[i, j]:.{decimals}f}" for j in range(nx)]
-                f.write(" ".join(row_values) + "\n")
-
-        actual_size_mb = os.path.getsize(out_file) / (1024 * 1024)
-        log_func(f"   File written: {actual_size_mb:.1f} MB")
-        return True
-
-    except Exception as e:
-        log_func(f"   Error writing custom grid '{out_name}': {str(e)}")
-        return False
+    if is_complex:
+        row_values = [f"({v.real:.18e}{v.imag:+.18e}j)" for v in row]
+    elif decimals == 0:
+        row_values = [str(int(round(v))) for v in row]
+    else:
+        row_values = [f"{v:.{decimals}f}" for v in row]
+    return " ".join(row_values)

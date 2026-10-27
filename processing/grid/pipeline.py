@@ -1,14 +1,25 @@
 """
 Grid generation pipeline: interpolation, adaptive spacing and output files.
 """
+import math
 from pathlib import Path
 
 import numpy as np
 
 from ...utils.constants import get_working_crs, NODATA_VAL
+from ..progress import NullProgress
 from ..custom_grid import create_threshold_mask_grid
-from .gridmath import node_coordinates, rot_point, to_local_frame, uniform_axes
+from .gridmath import rot_point, to_local_frame, uniform_axes
 from .preview import plot_custom_grid_preview, plot_grid_preview
+from .stream import (
+    GridBounds,
+    GridInterpolator,
+    NodeGrid,
+    PreviewSampler,
+    rows_per_block,
+    write_bed_rows,
+    write_coordinate_rows,
+)
 from .threshold import (
     create_left_to_right_adaptive_grid,
     create_threshold_based_adaptive_grid,
@@ -26,12 +37,14 @@ def create_grids_gui(ll, centre, w, h, ang_deg, dx, dy, xyz_file: Path, out_dir:
                      adaptive_z_threshold=None, adaptive_transition_factor=None,
                      show_grid_spacing_preview=False, show_bed_2d_preview=False,
                      show_bed_3d_preview=False, show_custom_grid_preview=False,
-                     raster_name=None):
+                     raster_name=None, progress=None):
     """
     Build a grid over the model area and write all enabled output files.
 
-    Interpolates the XYZ samples onto a uniform or adaptive node layout, writes
-    x.grd, y.grd and z.grd, then any custom grids and the threshold mask.
+    Interpolates the XYZ samples onto a uniform or adaptive node layout and
+    writes x.grd, y.grd and z.grd a block of rows at a time, so memory use does
+    not grow with the grid size. Then writes any custom grids and the
+    threshold mask.
 
     Args:
         ll: Lower-left point (QgsPointXY)
@@ -57,13 +70,10 @@ def create_grids_gui(ll, centre, w, h, ang_deg, dx, dy, xyz_file: Path, out_dir:
         adaptive_transition_factor: Growth factor; estimated when None
         show_*_preview: Open the corresponding matplotlib preview pane
         raster_name: Raster name shown in preview titles
+        progress: Progress reporter (see processing.progress), or None
     """
     log_func("Creating SCOPE grids...")
-    try:
-        from scipy.interpolate import griddata
-        SCIPY_OK = True
-    except ImportError:
-        SCIPY_OK = False
+    progress = progress or NullProgress()
 
     def get_output_filename(base_name):
         if output_prefix:
@@ -71,6 +81,7 @@ def create_grids_gui(ll, centre, w, h, ang_deg, dx, dy, xyz_file: Path, out_dir:
         return base_name
 
     try:
+        progress.start("Reading XYZ samples")
         xyz = np.loadtxt(xyz_file, dtype=float)
     except Exception as e:
         log_func(f"Cannot read XYZ ({e})")
@@ -175,66 +186,75 @@ def create_grids_gui(ll, centre, w, h, ang_deg, dx, dy, xyz_file: Path, out_dir:
         ny = len(grid_y)
         log_func(f"Creating uniform grid with {nx}x{ny} cells.")
 
-    # Node coordinates in the working CRS.
-    XG, YG = node_coordinates(grid_x, grid_y, actual_ll_x, actual_ll_y,
-                              ang_deg, rot_center_x, rot_center_y)
-    ZA = np.full((ny, nx), np.nan)
+    origin = (origin_x, origin_y) if coord_system == "local" else None
+    grid = NodeGrid(grid_x, grid_y, actual_ll_x, actual_ll_y, ang_deg,
+                    rot_center_x, rot_center_y, origin=origin)
 
-    if SCIPY_OK:
+    progress.start("Triangulating samples")
+    interp = GridInterpolator(pts_xy, pts_z)
+    if interp.uses_scipy:
         log_func("Using scipy linear interpolation (triangulation-based)...")
-        grid_coords = np.column_stack([XG.ravel(), YG.ravel()])
-        interpolated_values = griddata(
-            points=pts_xy,
-            values=pts_z,
-            xi=grid_coords,
-            method='linear',
-            fill_value=np.nan
-        )
-        ZA = interpolated_values.reshape(ny, nx)
-
-        # Nodes outside the convex hull of the samples take the nearest value.
-        nan_mask = np.isnan(ZA)
-        if nan_mask.any():
-            log_func(f"Filling {np.sum(nan_mask)} NaN values with nearest neighbor...")
-            nearest_values = griddata(
-                points=pts_xy,
-                values=pts_z,
-                xi=grid_coords,
-                method='nearest'
-            )
-            ZA[nan_mask] = nearest_values.reshape(ny, nx)[nan_mask]
     else:
         log_func("Scipy not available, using nearest neighbor fallback...")
-        for ri in range(ny):
-            for cj in range(nx):
-                gx, gy = XG[ri, cj], YG[ri, cj]
-                dists = np.hypot(pts_xy[:, 0] - gx, pts_xy[:, 1] - gy)
-                imin = np.argmin(dists)
-                ZA[ri, cj] = pts_z[imin]
 
     if coord_system == "local":
-        XA = XG - origin_x
-        YA = YG - origin_y
         log_func("Converted coordinates to local system using lower-left as origin.")
     else:
-        XA = XG
-        YA = YG
         log_func(f"Using world coordinates ({get_working_crs().authid()}).")
 
     try:
-        dx_vals = np.hypot(np.diff(XA, axis=1), np.diff(YA, axis=1))
-        dy_vals = np.hypot(np.diff(XA, axis=0), np.diff(YA, axis=0))
+        dx_min, dx_max, dy_min, dy_max = grid.spacing_summary()
         log_func(
-            f"Grid spacing summary: Δx min/max = {np.nanmin(dx_vals):.3f}/{np.nanmax(dx_vals):.3f} m, Δy min/max = {np.nanmin(dy_vals):.3f}/{np.nanmax(dy_vals):.3f} m"
+            f"Grid spacing summary: Δx min/max = {dx_min:.3f}/{dx_max:.3f} m, Δy min/max = {dy_min:.3f}/{dy_max:.3f} m"
         )
     except Exception as e:
         log_func(f"Could not compute spacing summary: {e}")
 
-    if show_grid_spacing_preview or show_bed_2d_preview or show_bed_3d_preview:
+    show_grid_preview = show_grid_spacing_preview or show_bed_2d_preview or show_bed_3d_preview
+    show_custom_preview = show_custom_grid_preview and bool(custom_grid_definitions)
+    sampler = PreviewSampler(grid.shape) if show_grid_preview or show_custom_preview else None
+    bounds = GridBounds()
+    n_blocks = math.ceil(ny / rows_per_block(nx))
+    n_filled = 0
+
+    x_name, y_name, z_name = (get_output_filename(n) for n in ("x.grd", "y.grd", "z.grd"))
+    with (out_dir / x_name).open("wt") as fx, \
+            (out_dir / y_name).open("wt") as fy, \
+            (out_dir / z_name).open("w", encoding="utf-8") as fz:
+        progress.start(f"Writing {x_name}, {y_name}, {z_name}", ny)
+        for row_start, XG, YG, XA, YA in grid.blocks():
+            ZA, filled = interp(XG, YG)
+            n_filled += filled
+            write_coordinate_rows(fx, XA)
+            write_coordinate_rows(fy, YA)
+            write_bed_rows(fz, ZA)
+            bounds.update(XA, YA)
+            if sampler is not None:
+                sampler.add(row_start, XA, YA, ZA)
+            progress.update(row_start + len(XA))
+            if n_blocks > 1:
+                log_func(f"Grid rows written: {row_start + len(XA):,}/{ny:,}")
+
+    if n_filled:
+        log_func(f"Filled {n_filled} NaN values with nearest neighbor.")
+    log_func(f"{x_name}, {y_name}, {z_name} written.")
+
+    if sampler is not None:
+        XS, YS, ZS = sampler.arrays()
+        if not sampler.is_full:
+            log_func(f"Previews sample every {sampler.row_step} rows and {sampler.col_step} columns.")
+
+    if show_grid_preview:
+        dx_cells = None
+        if not sampler.is_full:
+            # Sampled nodes lie several cells apart; show the Δx of the cell
+            # at each sampled column rather than the distance between samples.
+            col_idx = np.arange(XS.shape[1] - 1) * sampler.col_step
+            dx_cells = np.tile(np.diff(grid.x_axis)[col_idx], (XS.shape[0] - 1, 1))
         plot_grid_preview(
-            XA,
-            YA,
-            ZA,
+            XS,
+            YS,
+            ZS,
             log_func,
             title="Generated Grid Preview",
             show_spacing=show_grid_spacing_preview,
@@ -242,31 +262,29 @@ def create_grids_gui(ll, centre, w, h, ang_deg, dx, dy, xyz_file: Path, out_dir:
             show_3d_preview=show_bed_3d_preview,
             ang_deg=ang_deg,
             raster_name=raster_name,
+            dx_cells=dx_cells,
         )
-
-    np.savetxt(out_dir / get_output_filename("x.grd"), XA, fmt="%.6f", delimiter=" ")
-    np.savetxt(out_dir / get_output_filename("y.grd"), YA, fmt="%.6f", delimiter=" ")
-    with (out_dir / get_output_filename("z.grd")).open("w", encoding="utf-8") as fz:
-        for row in ZA:
-            fz.write("\t".join("nan" if np.isnan(v) else f"{v:.6f}" for v in row) + "\n")
-    log_func(f"{get_output_filename('x.grd')}, {get_output_filename('y.grd')}, {get_output_filename('z.grd')} written.")
 
     if custom_grid_definitions:
         from ..custom_grid import create_custom_grids
-        create_custom_grids(XA, YA, origin_x, origin_y, out_dir, log_func,
-                            custom_grid_definitions, coord_system, output_prefix=output_prefix)
-        if show_custom_grid_preview:
-            for defn in custom_grid_definitions:
-                if defn.enabled and defn.show_preview:
-                    grid_path = out_dir / get_output_filename(defn.sanitized_filename())
-                    plot_custom_grid_preview(XA, YA, grid_path, log_func, ang_deg=ang_deg, raster_name=raster_name)
+
+        preview_func = None
+        if show_custom_preview:
+            def preview_func(name, values):
+                plot_custom_grid_preview(XS, YS, values, name, log_func,
+                                         ang_deg=ang_deg, raster_name=raster_name)
+
+        create_custom_grids(grid, bounds, origin_x, origin_y, out_dir, log_func,
+                            custom_grid_definitions, coord_system, output_prefix=output_prefix,
+                            preview_func=preview_func, progress=progress)
     else:
         log_func("No custom grid files defined.")
 
     if threshold_layers:
         log_func("Creating threshold mask grid for AeoLiS...")
-        create_threshold_mask_grid(XA, YA, origin_x, origin_y, out_dir, log_func, threshold_layers,
+        create_threshold_mask_grid(grid, bounds, origin_x, origin_y, out_dir, log_func, threshold_layers,
                                    coord_system, threshold_default_value,
-                                   out_name=get_output_filename("threshold_mask.grd"))
+                                   out_name=get_output_filename("threshold_mask.grd"),
+                                   progress=progress)
     else:
         log_func("No threshold mask layers provided. Skipping threshold_mask.grd creation.")

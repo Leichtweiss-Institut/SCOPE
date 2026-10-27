@@ -1,7 +1,9 @@
 """
 Main GUI dialog for SCOPE.
 """
+import math
 import os
+import shutil
 from pathlib import Path
 from qgis.PyQt.QtCore import Qt, QLocale
 from qgis.PyQt.QtGui import QPixmap, QFont, QFontMetrics
@@ -12,14 +14,52 @@ from qgis.PyQt.QtWidgets import (
     QListWidget, QListWidgetItem
 )
 from qgis.utils import iface
-from qgis.core import Qgis, QgsApplication, QgsProject
+from qgis.core import Qgis, QgsApplication, QgsCoordinateTransform, QgsProject
 from qgis.gui import QgsProjectionSelectionWidget
 
 from ..utils.constants import set_working_crs, get_working_crs
 
 from .raster_selection import select_raster_layers
 from ..core.map_tools import RectTool, MoveModelAreaTool
+from ..processing.grid import estimate
+from ..processing.progress import NullProgress
 from ..processing.raster import clip_translate_grid_gui
+
+
+class ProgressBarReporter(NullProgress):
+    """Shows the processing stage that is running in a label and progress bar.
+
+    The bar range is fixed at 0-1000 because Qt's int range is too small for
+    the node counts of large grids. Stages without progress information show
+    a busy indicator.
+    """
+
+    STEPS = 1000
+
+    def __init__(self, bar, label):
+        self.bar = bar
+        self.label = label
+        self.prefix = ""
+        self._total = 0
+
+    def start(self, label, total=0):
+        self._total = total
+        self.label.setText(f"{self.prefix}{label}")
+        if total:
+            self.bar.setRange(0, self.STEPS)
+            self.bar.setValue(0)
+        else:
+            self.bar.setRange(0, 0)
+        QgsApplication.processEvents()
+
+    def update(self, done):
+        if not self._total:
+            return
+        value = min(self.STEPS, int(self.STEPS * done / self._total))
+        # Repaint only when the bar moves; updates can come thousands of times per stage.
+        if value != self.bar.value():
+            self.bar.setValue(value)
+            QgsApplication.processEvents()
 
 
 class AdaptiveGridDialog(QDialog):
@@ -196,8 +236,11 @@ class ScopeDialog(QDialog):
 
         self._create_log_area(layout)
 
+        self.progress_label = QLabel()
         self.progress = QProgressBar()
-        self.progress.setVisible(False)
+        self.progress_reporter = ProgressBarReporter(self.progress, self.progress_label)
+        self._show_progress(False)
+        layout.addWidget(self.progress_label)
         layout.addWidget(self.progress)
 
         # Bottom action row: highlighted "Process selected area" on the left,
@@ -1066,6 +1109,8 @@ class ScopeDialog(QDialog):
             if not xyz_file.lower().endswith(".xyz"):
                 xyz_file += ".xyz"
             single_xyz_path = Path(xyz_file)
+            if not self._confirm_large_run(rasters, [self._model_area_size()], single_xyz_path.parent):
+                return
         else:
             batch_dir = QFileDialog.getExistingDirectory(
                 self,
@@ -1074,6 +1119,8 @@ class ScopeDialog(QDialog):
             )
             if not batch_dir:
                 self.log("Batch processing cancelled: no output directory selected.")
+                return
+            if not self._confirm_large_run(rasters, [self._model_area_size()], batch_dir):
                 return
 
             batch_output_dir = batch_dir
@@ -1086,12 +1133,12 @@ class ScopeDialog(QDialog):
             self.log(f"Batch output directory: {batch_output_dir}")
             self.log(f"Batch log file: {batch_log_path}")
 
-        self.progress.setVisible(True)
-        self.progress.setRange(0, len(rasters))
+        self._show_progress(True)
 
         try:
             for i, raster in enumerate(rasters):
-                self.progress.setValue(i)
+                if batch_mode:
+                    self.progress_reporter.prefix = f"Raster {i+1}/{len(rasters)} · "
                 self.log(f"Processing bathymetry {i+1}/{len(rasters)}: {raster.name()}")
 
                 if batch_mode:
@@ -1114,7 +1161,6 @@ class ScopeDialog(QDialog):
                     log_path=log_path,
                 )
 
-            self.progress.setValue(len(rasters))
             self._remove_input_layers()
             self.log("Processing completed!")
 
@@ -1122,7 +1168,114 @@ class ScopeDialog(QDialog):
             self.log(f"Error during processing: {str(e)}")
             QMessageBox.critical(self, "Processing Error", f"Error: {str(e)}")
         finally:
-            self.progress.setVisible(False)
+            self._show_progress(False)
+
+    def _show_progress(self, visible):
+        """Show or hide the progress label and bar, starting from a clean state."""
+        self.progress_reporter.prefix = ""
+        self.progress_label.clear()
+        self.progress.setRange(0, ProgressBarReporter.STEPS)
+        self.progress.setValue(0)
+        self.progress_label.setVisible(visible)
+        self.progress.setVisible(visible)
+
+    def _model_area_size(self):
+        """(width, height, centre) of the drawn model area."""
+        return self.width_spin.value(), self.height_spin.value(), self.centre_point
+
+    def _estimate_spacing(self):
+        """(dx, dy, min_cell_size or None) as process_single_raster will use them."""
+        dlg = self.adaptive_dialog
+        if dlg.is_enabled():
+            min_cell_size = dlg.min_cell_size_spin.value()
+            if dlg.max_cell_size_spin.value() > min_cell_size:
+                return self.dx_spin.value(), dlg.adaptive_longshore_size_spin.value(), min_cell_size
+        return self.dx_spin.value(), self.dy_spin.value(), None
+
+    def _raster_areas(self, raster):
+        """(pixel area, extent area) of a raster in working CRS units."""
+        extent = raster.extent()
+        working_crs = get_working_crs()
+        if raster.crs() != working_crs:
+            transform = QgsCoordinateTransform(raster.crs(), working_crs, QgsProject.instance())
+            extent = transform.transformBoundingBox(extent)
+        pixel_area = (extent.width() / raster.width()) * (extent.height() / raster.height())
+        return pixel_area, extent.width() * extent.height()
+
+    def _estimate_run(self, rasters, areas):
+        """RunEstimate per raster and model area with the current settings."""
+        dx, dy, min_cell_size = self._estimate_spacing()
+        local = self.coord_combo.currentIndex() == 0
+        custom_grids = [(d.decimals, len(d.layer_values))
+                        for d in self.custom_grid_definitions if d.enabled]
+        threshold_layers = len(self.selected_threshold_layers or {})
+
+        estimates = []
+        for raster in rasters:
+            pixel_area, raster_area = self._raster_areas(raster)
+            for width, height, centre in areas:
+                cx, cy = centre
+                diagonal = math.hypot(width, height)
+                max_abs_coord = diagonal if local else max(abs(cx), abs(cy)) + diagonal
+                estimates.append(estimate.estimate_run(
+                    width, height, dx, dy, pixel_area, max_abs_coord,
+                    min_cell_size=min_cell_size, raster_area=raster_area,
+                    custom_grids=custom_grids, threshold_layers=threshold_layers,
+                ))
+        return estimates
+
+    def _confirm_large_run(self, rasters, areas, out_dir):
+        """
+        Log a size estimate and ask before runs that are very large.
+
+        Args:
+            rasters: Raster layers to process
+            areas: (width, height, centre) per model area or sub-area
+            out_dir: Output directory, used for the free disk space
+
+        Returns:
+            bool: True to go ahead with processing.
+        """
+        if not self.create_grids_cb.isChecked():
+            return True
+        try:
+            estimates = self._estimate_run(rasters, areas)
+        except Exception as e:
+            self.log(f"Could not estimate the run size: {e}")
+            return True
+
+        free_disk = None
+        try:
+            free_disk = shutil.disk_usage(out_dir).free
+        except OSError:
+            pass
+        available_ram = None
+        try:
+            import psutil
+            available_ram = psutil.virtual_memory().available
+        except Exception:
+            pass
+
+        self.log(estimate.summary(estimates))
+        reasons = estimate.check_run(estimates, free_disk, available_ram)
+        if not reasons:
+            return True
+
+        message = (
+            "This run is very large and may not finish on this computer:\n\n"
+            + "\n".join(f"• {reason}" for reason in reasons)
+            + "\n\nEstimates are approximate. A smaller model area or a coarser grid "
+              "spacing makes the run smaller.\n\nContinue anyway?"
+        )
+        answer = QMessageBox.warning(
+            self, "Very large run", message,
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            self.log("Processing cancelled after the size warning.")
+            return False
+        self.log("Size warning acknowledged, processing continues.")
+        return True
 
     def process_split_areas(self):
         """Process multiple split areas."""
@@ -1135,13 +1288,18 @@ class ScopeDialog(QDialog):
         if not base_dir:
             self.log("Split processing cancelled: no base directory selected.")
             return
+        areas = []
+        for area_info in self.split_areas:
+            bbox = area_info['geometry'].boundingBox()
+            areas.append((bbox.width(), bbox.height(), area_info['center_point']))
+        if not self._confirm_large_run(rasters, areas, base_dir):
+            return
         base_dir = Path(base_dir)
         log_path = base_dir / "split_processing.log"
         self.log(f"Base directory selected: {base_dir}")
 
         total_areas = len(self.split_areas) * len(rasters)
-        self.progress.setVisible(True)
-        self.progress.setRange(0, total_areas)
+        self._show_progress(True)
 
         try:
             self.log(f"Processing {len(self.split_areas)} sub-areas for {len(rasters)} raster(s)...")
@@ -1150,7 +1308,10 @@ class ScopeDialog(QDialog):
             step = 0
             for raster in rasters:
                 for area_info in self.split_areas:
-                    self.progress.setValue(step)
+                    raster_part = f"{raster.name()} / " if len(rasters) > 1 else ""
+                    self.progress_reporter.prefix = (
+                        f"{raster_part}{area_info['name']} ({step+1}/{total_areas}) · "
+                    )
                     self.log(f"Processing {raster.name()} / {area_info['name']} ({step+1}/{total_areas})")
 
                     output_prefix = f"{raster.name()}_{area_info['name']}"
@@ -1172,7 +1333,6 @@ class ScopeDialog(QDialog):
                     )
                     step += 1
 
-            self.progress.setValue(total_areas)
             self._remove_input_layers()
             self.log(f"All {total_areas} sub-areas processed successfully!")
 
@@ -1180,7 +1340,7 @@ class ScopeDialog(QDialog):
             self.log(f"Error during split area processing: {str(e)}")
             QMessageBox.critical(self, "Processing Error", f"Error: {str(e)}")
         finally:
-            self.progress.setVisible(False)
+            self._show_progress(False)
 
     def process_single_raster(
         self,
@@ -1244,6 +1404,7 @@ class ScopeDialog(QDialog):
             show_custom_grid_preview=self.preview_custom_cb.isChecked() and output_prefix is None,
             xyz_path=xyz_path,
             log_path=log_path,
+            progress=self.progress_reporter,
         )
 
     def on_anchor_point_changed(self, text):
